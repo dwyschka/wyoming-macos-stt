@@ -73,7 +73,7 @@ class MacosSTTEventHandler(AsyncEventHandler):
                 f"Command execution duration: {end_time - start_time} seconds"
             )
             if proc.returncode == 0:
-                text = stdout.decode()
+                text = stdout.decode().strip()
                 _LOGGER.debug(f"Transcribed text: {text}")
                 await self.write_event(Transcript(text=text).event())
             else:
