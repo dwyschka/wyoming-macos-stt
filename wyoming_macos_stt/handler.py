@@ -85,9 +85,11 @@ class MacosSTTEventHandler(AsyncEventHandler):
 
             _LOGGER.debug("Running command: %s", cmd)
             start_time = time.time()
+            proc = None
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *cmd,
+                    stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -97,10 +99,24 @@ class MacosSTTEventHandler(AsyncEventHandler):
             except asyncio.TimeoutError:
                 _LOGGER.error("Command timed out after %ds", _SUBPROCESS_TIMEOUT)
                 proc.kill()
+                await proc.wait()
+                await self.write_event(Transcript(text="").event())
+                return False
+            except OSError as err:
+                # e.g. yap is not installed or not executable
+                _LOGGER.error("Failed to run %s: %s", cmd[0], err)
                 await self.write_event(Transcript(text="").event())
                 return False
             finally:
-                _LOGGER.debug("Command execution duration: %.3fs", time.time() - start_time)
+                _LOGGER.debug(
+                    "Command execution duration: %.3fs", time.time() - start_time
+                )
+                # Never keep the recording around: one file per connection would
+                # otherwise accumulate for the lifetime of the process.
+                try:
+                    os.remove(self._wav_path)
+                except OSError:
+                    pass
 
             if proc.returncode == 0:
                 text = stdout.decode().strip()

@@ -10,6 +10,7 @@ from wyoming.server import AsyncServer
 
 from . import __version__
 from .handler import MacosSTTEventHandler
+from .warmup import warmup
 
 _LOGGER = logging.getLogger("wyoming-macos-stt")
 
@@ -28,6 +29,13 @@ async def main() -> None:
         default="",
         help="Arguments to pass to the yap CLI tool (see: yap --help)",
     )
+    parser.add_argument(
+        "--warmup-languages",
+        default="",
+        help="Comma-separated languages to pre-load at startup (e.g. de_DE,en_US). "
+        "yap downloads speech assets on first use and fails the request that "
+        "triggers the download",
+    )
     parser.add_argument("--debug", action="store_true", help="Log DEBUG messages")
     parser.add_argument(
         "--log-format",
@@ -39,7 +47,7 @@ async def main() -> None:
         help="Directory to store the logs (leave empty to not save any logs)",
     )
     parser.add_argument(
-        "--log-keep-days", default=7, help="Number of days to keep logs"
+        "--log-keep-days", type=int, default=7, help="Number of days to keep logs"
     )
     parser.add_argument(
         "--version",
@@ -57,11 +65,18 @@ async def main() -> None:
         handler = TimedRotatingFileHandler(
             os.path.join(args.log_dir, "app.log"),
             when="midnight",
-            backupCount=int(args.log_keep_days),
+            backupCount=args.log_keep_days,
         )
         handler.setFormatter(logging.Formatter(args.log_format))
-        _LOGGER.addHandler(handler)
+        # Attach to the root logger so library output and unhandled
+        # exceptions end up in the log file too, not just our own messages.
+        logging.getLogger().addHandler(handler)
     _LOGGER.debug(f"Starting server with args: {args}")
+
+    languages = [lang.strip() for lang in args.warmup_languages.split(",") if lang.strip()]
+    if languages:
+        _LOGGER.info("Warming up languages: %s", ", ".join(languages))
+        await warmup(languages, args.yap_args)
 
     server = AsyncServer.from_uri(args.uri)
     _LOGGER.info("Ready")
